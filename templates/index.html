@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Result Management System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}">
+</head>
+
+<body>
+    <div class="container">
+        <div class="nav">
+            <div class="img">
+                 <img src="{{ url_for('static', filename='images/logo.png') }}" alt="College Logo" width="100">
+            </div>
+            <div class="tabs">
+                <ul>
+                    <li>Home</li>
+                    <li>Contact</li>
+                    <li>Login</li>
+                </ul>
+            </div>
+        </div>
+        <div class="sepline"></div>
+        <div class="main">
+            <form action="/fetch" method="post">
+
+                <label>Circular/Batch Year*</label>
+                <input type="text" name="circular_no" placeholder="Example: 23" required>
+
+                <label>College Code*</label>
+                <input type="text" name="college_code" placeholder="Example: 466" required>
+
+                <label>Branch Code*</label>
+                <select name="branch_code" required>
+                    <option value="">-- Select Branch --</option>
+                    <option value="CM">CM - Computer Engineering</option>
+                    <option value="EC">EC - Electronics & Communication</option>
+                    <option value="EE">EE - Electrical Engineering</option>
+                    <option value="ME">ME - Mechanical Engineering</option>
+                </select>
+
+                <label>Semester*</label>
+                <select name="semester" required>
+                    <option value="">-- Select Semester --</option>
+                    <option value="1">Semester 1</option>
+                    <option value="2">Semester 2</option>
+                    <option value="3">Semester 3</option>
+                    <option value="4">Semester 4</option>
+                    <option value="5">Semester 5</option>
+                    <option value="6">Semester 6</option>
+                </select>
+
+                <label>Roll Number From*</label>
+                <input type="number" name="roll_from" placeholder="Example: 001" required>
+
+                <label>Roll Number To*</label>
+                <input type="number" name="roll_to" placeholder="Example: 200" required>
+
+                <button type="submit">Fetch Results</button>
+
+            </form>
+        </div>
+    </div>
+</body>
+
+</html>

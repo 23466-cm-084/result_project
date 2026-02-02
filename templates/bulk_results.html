@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bulk Results</title>
+    <style>
+        body { font-family: Arial; background:#f2f2f2; }
+        .container { width:95%; margin:20px auto; background:#fff; padding:20px; }
+        h2 { text-align:center; }
+        table { width:100%; border-collapse:collapse; }
+        th, td { border:1px solid #444; padding:8px; text-align:center; }
+        th { background:#d9e6f2; }
+        .pass { color:green; font-weight:bold; }
+        .fail { color:red; font-weight:bold; }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+    <a href="/" style="
+    display: inline-block;
+    margin-bottom: 15px;
+    text-decoration: none;
+    color: #0066cc;
+    font-weight: bold;
+   ">
+    ⬅️ Back to Home
+   </a>
+
+
+    <h2>Bulk Result Report</h2>
+
+    <a href="/download_excel" style="
+    display: flex;
+    align-items: center;
+    justify-self: flex-end;
+    margin: 10px 0;
+    padding: 8px 15px;
+    background: #1d6f42; 
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: bold;
+">
+    ⬇️ Download Bulk Results (Excel)
+</a>
+
+
+    <table id="resultsTable">
+        <input type="text" id="searchInput" placeholder="Search by Roll No or Name..."
+       style="
+        width: 300px;
+        padding: 8px;
+        margin: 15px 0;
+        border: 1px solid #666;
+        border-radius: 4px;
+       ">
+
+        <tr>
+            <th>S.No</th>
+            <th>Roll No</th>
+            <th>Name</th>
+            <th>Grand Total</th>
+            <th>Result</th>
+        </tr>
+
+        {% for r in results %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>
+                <a href="/student/{{ r.roll }}/{{ semester }}">
+                    {{ r.roll }}
+                </a>
+            </td>
+
+            <td>{{ r.name }}</td>
+            <td>{{ r.total }}</td>
+            <td class="{{ 'pass' if r.result == 'PROMOTED' else 'fail' }}">
+                {{ r.result }}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <div style="
+    margin: 15px 0;
+    padding: 10px;
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    font-weight: bold;
+">
+    Pass All Subjects: {{ pass_all }} |
+    Failed 1 Subject: {{ fail_1 }} |
+    Failed 2 Subjects: {{ fail_2 }} |
+    Failed 3 Subjects: {{ fail_3 }} |
+    Failed 4+ Subjects: {{ fail_4_plus }}
+</div>
+
+</div>
+
+<script>
+document.getElementById("searchInput").addEventListener("keyup", function () {
+    let filter = this.value.toUpperCase();
+    let table = document.getElementById("resultsTable");
+    let rows = table.getElementsByTagName("tr");
+
+    for (let i = 1; i < rows.length; i++) {
+        let rollCell = rows[i].getElementsByTagName("td")[1];
+        let nameCell = rows[i].getElementsByTagName("td")[2];
+
+        if (rollCell && nameCell) {
+            let rollText = rollCell.textContent || rollCell.innerText;
+            let nameText = nameCell.textContent || nameCell.innerText;
+
+            if (
+                rollText.toUpperCase().indexOf(filter) > -1 ||
+                nameText.toUpperCase().indexOf(filter) > -1
+            ) {
+                rows[i].style.display = "";
+            } else {
+                rows[i].style.display = "none";
+            }
+        }
+    }
+});
+</script>
+
+
+</body>
+</html>
