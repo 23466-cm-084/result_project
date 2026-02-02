@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from flask import Flask, render_template, request
 
 app = Flask(__name__)
+LAST_BULK_RESULTS = []
 
 URL = "https://sbtet.ap.gov.in/APSBTET/gradeWiseResults.do"
 
@@ -41,8 +42,12 @@ def fetch_results():
             "mode": "getData"
         }
 
-        response = requests.post(URL, data=payload)
-        time.sleep(0.5)
+        try:
+           response = requests.post(URL, data=payload, timeout=10)
+        except requests.exceptions.RequestException:
+        continue
+
+        time.sleep(0.2)
 
         soup = BeautifulSoup(response.content, "html.parser")
         rows = soup.find_all("tr")
@@ -135,6 +140,9 @@ def fetch_results():
 @app.route('/download_excel')
 def download_excel():
     global LAST_BULK_RESULTS
+    
+    if not LAST_BULK_RESULTS:
+    return "No data available to download", 400
 
     wb = Workbook()
     ws = wb.active
@@ -182,7 +190,7 @@ def view_student(roll_no, semester):
         "mode": "getData"
     }
 
-    response = requests.post(URL, data=payload)
+    response = requests.post(URL, data=payload, timeout=10)
     soup = BeautifulSoup(response.content, "html.parser")
     rows = soup.find_all("tr")
 
@@ -233,5 +241,3 @@ def view_student(roll_no, semester):
 
 
 
-if __name__ == '__main__':
-    app.run()
