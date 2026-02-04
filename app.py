@@ -2,16 +2,14 @@ import time
 import io
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, render_template, request, send_file, abort
+from flask import Flask, render_template, request, send_file
 from openpyxl import Workbook
 
 app = Flask(__name__)
 
 URL = "https://sbtet.ap.gov.in/APSBTET/gradeWiseResults.do"
 
-# NOTE:
-# These globals work for DEMO / academic projects.
-# For real production, DB or session storage is recommended.
+# Global storage for downloads
 LAST_BULK_RESULTS = []
 LAST_EXCEL_DATA = []
 
@@ -28,15 +26,12 @@ def fetch_results():
     LAST_BULK_RESULTS = []
     LAST_EXCEL_DATA = []
 
-    try:
-        circular_no = request.form['circular_no']
-        college_code = request.form['college_code']
-        branch_code = request.form['branch_code']
-        semester = request.form['semester']
-        roll_from = int(request.form['roll_from'])
-        roll_to = int(request.form['roll_to'])
-    except Exception:
-        abort(400)
+    circular_no = request.form['circular_no']
+    college_code = request.form['college_code']
+    branch_code = request.form['branch_code']
+    semester = request.form['semester']
+    roll_from = int(request.form['roll_from'])
+    roll_to = int(request.form['roll_to'])
 
     roll_numbers = []
     for i in range(roll_from, roll_to + 1):
@@ -50,22 +45,12 @@ def fetch_results():
             "mode": "getData"
         }
 
-        try:
-            response = requests.post(URL, data=payload, timeout=10)
-            soup = BeautifulSoup(response.content, "html.parser")
-        except Exception:
-            LAST_BULK_RESULTS.append({
-                "roll": roll_no,
-                "name": "ERROR",
-                "total": "—",
-                "result": "FAILED TO FETCH",
-                "fail_count": None
-            })
-            continue
+        response = requests.post(URL, data=payload)
+        time.sleep(0.5)
 
-        time.sleep(0.3)  # polite delay
-
+        soup = BeautifulSoup(response.content, "html.parser")
         rows = soup.find_all("tr")
+
         student = {"PIN": roll_no}
         subjects = []
 
@@ -93,6 +78,7 @@ def fetch_results():
                     "status": tds[6].text.strip()
                 })
 
+        # -------- Fail count --------
         fail_count = sum(1 for s in subjects if s["status"] == "F")
         name = student.get("Name", "")
 
@@ -113,6 +99,7 @@ def fetch_results():
                 "fail_count": fail_count
             })
 
+            # -------- Store FULL subject-wise data for Excel --------
             for sub in subjects:
                 LAST_EXCEL_DATA.append({
                     "roll": roll_no,
@@ -124,6 +111,7 @@ def fetch_results():
                     "status": sub["status"]
                 })
 
+            # Blank row between students
             LAST_EXCEL_DATA.append({
                 "roll": "",
                 "subject": "",
@@ -134,6 +122,7 @@ def fetch_results():
                 "status": ""
             })
 
+    # -------- Analysis --------
     pass_all = fail_1 = fail_2 = fail_3 = fail_4_plus = 0
 
     for r in LAST_BULK_RESULTS:
@@ -163,25 +152,32 @@ def fetch_results():
     )
 
 
+# -------- Download FULL Excel (subject-wise) --------
 @app.route('/download_excel')
 def download_excel():
-    if not LAST_EXCEL_DATA:
-        abort(404)
-
     wb = Workbook()
     ws = wb.active
     ws.title = "Full Results"
 
     ws.append([
-        "Roll No", "Subject Code", "External",
-        "Internal", "Total", "Grade", "Status"
+        "Roll No",
+        "Subject Code",
+        "External",
+        "Internal",
+        "Total",
+        "Grade",
+        "Status"
     ])
 
     for row in LAST_EXCEL_DATA:
         ws.append([
-            row["roll"], row["subject"], row["external"],
-            row["internal"], row["total"],
-            row["grade"], row["status"]
+            row["roll"],
+            row["subject"],
+            row["external"],
+            row["internal"],
+            row["total"],
+            row["grade"],
+            row["status"]
         ])
 
     file_stream = io.BytesIO()
@@ -196,6 +192,7 @@ def download_excel():
     )
 
 
+# -------- Single student view --------
 @app.route('/student/<roll_no>/<semester>')
 def view_student(roll_no, semester):
     payload = {
@@ -204,14 +201,17 @@ def view_student(roll_no, semester):
         "mode": "getData"
     }
 
-    try:
-        response = requests.post(URL, data=payload, timeout=10)
-        soup = BeautifulSoup(response.content, "html.parser")
-    except Exception:
-        abort(500)
-
+    response = requests.post(URL, data=payload)
+    soup = BeautifulSoup(response.content, "html.parser")
     rows = soup.find_all("tr")
-    student = {"PIN": roll_no}
+
+    # Photo extraction (optional)
+    photo_src = None
+    img = soup.find("img", {"alt": "NO FILE"})
+    if img and img.get("src", "").startswith("data:image"):
+        photo_src = img["src"]
+
+    student = {"PIN": roll_no, "photo": photo_src}
     subjects = []
 
     for row in rows:
@@ -240,3 +240,9 @@ def view_student(roll_no, semester):
         "student": student,
         "subjects": subjects
     })
+
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=5000)
+
+  
