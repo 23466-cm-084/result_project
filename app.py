@@ -1,17 +1,19 @@
 import time
-from openpyxl import Workbook
-from flask import send_file
 import io
-import csv
-from flask import Response
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_file, abort
+from openpyxl import Workbook
 
 app = Flask(__name__)
-LAST_BULK_RESULTS = []
 
 URL = "https://sbtet.ap.gov.in/APSBTET/gradeWiseResults.do"
+
+# NOTE:
+# These globals work for DEMO / academic projects.
+# For real production, DB or session storage is recommended.
+LAST_BULK_RESULTS = []
+LAST_EXCEL_DATA = []
 
 
 @app.route('/')
@@ -21,19 +23,25 @@ def home():
 
 @app.route('/fetch', methods=['POST'])
 def fetch_results():
-    circular_no = request.form['circular_no']
-    college_code = request.form['college_code']
-    branch_code = request.form['branch_code']
-    semester = request.form['semester']
-    roll_from = int(request.form['roll_from'])
-    roll_to = int(request.form['roll_to'])
+    global LAST_BULK_RESULTS, LAST_EXCEL_DATA
+
+    LAST_BULK_RESULTS = []
+    LAST_EXCEL_DATA = []
+
+    try:
+        circular_no = request.form['circular_no']
+        college_code = request.form['college_code']
+        branch_code = request.form['branch_code']
+        semester = request.form['semester']
+        roll_from = int(request.form['roll_from'])
+        roll_to = int(request.form['roll_to'])
+    except Exception:
+        abort(400)
 
     roll_numbers = []
     for i in range(roll_from, roll_to + 1):
         roll_serial = str(i).zfill(3)
         roll_numbers.append(f"{circular_no}{college_code}-{branch_code}-{roll_serial}")
-
-    all_results = []
 
     for roll_no in roll_numbers:
         payload = {
@@ -43,26 +51,32 @@ def fetch_results():
         }
 
         try:
-           response = requests.post(URL, data=payload, timeout=10)
-        except requests.exceptions.RequestException:
-        continue
+            response = requests.post(URL, data=payload, timeout=10)
+            soup = BeautifulSoup(response.content, "html.parser")
+        except Exception:
+            LAST_BULK_RESULTS.append({
+                "roll": roll_no,
+                "name": "ERROR",
+                "total": "—",
+                "result": "FAILED TO FETCH",
+                "fail_count": None
+            })
+            continue
 
-        time.sleep(0.2)
+        time.sleep(0.3)  # polite delay
 
-        soup = BeautifulSoup(response.content, "html.parser")
         rows = soup.find_all("tr")
-
         student = {"PIN": roll_no}
         subjects = []
 
-        # -------- student info ----------
+        # -------- Student details --------
         for row in rows:
             ths = row.find_all("th")
             tds = row.find_all("td")
             if len(ths) == 1 and len(tds) == 1:
                 student[ths[0].text.strip()] = tds[0].text.strip()
 
-        # -------- subject info ----------
+        # -------- Subject details --------
         for row in rows:
             ths = row.find_all("th")
             tds = row.find_all("td")
@@ -72,19 +86,18 @@ def fetch_results():
                     continue
                 subjects.append({
                     "code": code,
+                    "external": tds[0].text.strip(),
+                    "internal": tds[1].text.strip(),
+                    "total": tds[2].text.strip(),
+                    "grade": tds[5].text.strip(),
                     "status": tds[6].text.strip()
                 })
 
-        # -------- fail count ----------
-        fail_count = 0
-        for sub in subjects:
-            if sub["status"] == "F":
-                fail_count += 1
-
+        fail_count = sum(1 for s in subjects if s["status"] == "F")
         name = student.get("Name", "")
 
         if name == "":
-            all_results.append({
+            LAST_BULK_RESULTS.append({
                 "roll": roll_no,
                 "name": "—",
                 "total": "—",
@@ -92,20 +105,38 @@ def fetch_results():
                 "fail_count": None
             })
         else:
-            all_results.append({
+            LAST_BULK_RESULTS.append({
                 "roll": roll_no,
                 "name": name,
                 "total": student.get("Grand Total", ""),
                 "result": student.get("Result", ""),
                 "fail_count": fail_count
             })
-            
 
+            for sub in subjects:
+                LAST_EXCEL_DATA.append({
+                    "roll": roll_no,
+                    "subject": sub["code"],
+                    "external": sub["external"],
+                    "internal": sub["internal"],
+                    "total": sub["total"],
+                    "grade": sub["grade"],
+                    "status": sub["status"]
+                })
 
-    # -------- analysis ----------
+            LAST_EXCEL_DATA.append({
+                "roll": "",
+                "subject": "",
+                "external": "",
+                "internal": "",
+                "total": "",
+                "grade": "",
+                "status": ""
+            })
+
     pass_all = fail_1 = fail_2 = fail_3 = fail_4_plus = 0
 
-    for r in all_results:
+    for r in LAST_BULK_RESULTS:
         fc = r["fail_count"]
         if fc is None:
             continue
@@ -120,14 +151,9 @@ def fetch_results():
         else:
             fail_4_plus += 1
 
-    #to get stored bulk results and to use them to download in a file
-    global LAST_BULK_RESULTS
-    LAST_BULK_RESULTS = all_results
-     
-    
     return render_template(
         "bulk_results.html",
-        results=all_results,
+        results=LAST_BULK_RESULTS,
         pass_all=pass_all,
         fail_1=fail_1,
         fail_2=fail_2,
@@ -139,35 +165,25 @@ def fetch_results():
 
 @app.route('/download_excel')
 def download_excel():
-    global LAST_BULK_RESULTS
-    
-    if not LAST_BULK_RESULTS:
-    return "No data available to download", 400
+    if not LAST_EXCEL_DATA:
+        abort(404)
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Bulk Results"
+    ws.title = "Full Results"
 
-    # Header row
     ws.append([
-        "Roll No",
-        "Name",
-        "Grand Total",
-        "Result",
-        "Failed Subjects Count"
+        "Roll No", "Subject Code", "External",
+        "Internal", "Total", "Grade", "Status"
     ])
 
-    # Data rows
-    for r in LAST_BULK_RESULTS:
+    for row in LAST_EXCEL_DATA:
         ws.append([
-            r["roll"],
-            r["name"],
-            r["total"],
-            r["result"],
-            "" if r["fail_count"] is None else r["fail_count"]
+            row["roll"], row["subject"], row["external"],
+            row["internal"], row["total"],
+            row["grade"], row["status"]
         ])
 
-    # Save to memory (not disk)
     file_stream = io.BytesIO()
     wb.save(file_stream)
     file_stream.seek(0)
@@ -175,13 +191,11 @@ def download_excel():
     return send_file(
         file_stream,
         as_attachment=True,
-        download_name="bulk_results.xlsx",
+        download_name="Full_Diploma_Results.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 
-
-# -------- single student page --------
 @app.route('/student/<roll_no>/<semester>')
 def view_student(roll_no, semester):
     payload = {
@@ -190,32 +204,21 @@ def view_student(roll_no, semester):
         "mode": "getData"
     }
 
-    response = requests.post(URL, data=payload, timeout=10)
-    soup = BeautifulSoup(response.content, "html.parser")
+    try:
+        response = requests.post(URL, data=payload, timeout=10)
+        soup = BeautifulSoup(response.content, "html.parser")
+    except Exception:
+        abort(500)
+
     rows = soup.find_all("tr")
-
-    # ---------------- PHOTO EXTRACTION ----------------
-    photo_src = None
-    img = soup.find("img", {"alt": "NO FILE"})
-    if img and img.get("src", "").startswith("data:image"):
-        photo_src = img["src"]
-    # --------------------------------------------------
-
-    # ---------------- STUDENT DETAILS -----------------
     student = {"PIN": roll_no}
+    subjects = []
 
     for row in rows:
         ths = row.find_all("th")
         tds = row.find_all("td")
         if len(ths) == 1 and len(tds) == 1:
             student[ths[0].text.strip()] = tds[0].text.strip()
-
-    # ✅ THIS IS THE LINE YOU ASKED ABOUT
-    student["photo"] = photo_src
-    # --------------------------------------------------
-
-    # ---------------- SUBJECT DETAILS -----------------
-    subjects = []
 
     for row in rows:
         ths = row.find_all("th")
@@ -232,12 +235,8 @@ def view_student(roll_no, semester):
                 "grade": tds[5].text.strip(),
                 "status": tds[6].text.strip()
             })
-    # --------------------------------------------------
 
     return render_template("result.html", data={
         "student": student,
         "subjects": subjects
     })
-
-
-
